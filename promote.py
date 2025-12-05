@@ -27,9 +27,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================== DATABASE FILES ========================
-USERBOT_DB = "ushai.json"
+USERBOT_DB = "usr.json"
 MESSAGES_DB = "msg.json"
-SETTINGS_DB = "setwoi.json"
+SETTINGS_DB = "set.json"
 
 # ======================== HELPER FUNCTIONS ========================
 def load_json(filename):
@@ -56,15 +56,15 @@ async def start_handler(event):
         return
     
     buttons = [
-        [Button.inline("➕ Tambah Ubot", b"add_ubot")],
-        [Button.inline("🔄 On/Off All Ubot", b"toggle_ubots")],
-        [Button.inline("👥 Join Ch/Grup", b"join_group")],
+        [Button.inline("➕ Tambah Userbot", b"add_ubot")],
+        [Button.inline("🔄 On/Off All Userbot", b"toggle_ubots")],
+        [Button.inline("👥 Join Channel/Group", b"join_group")],
         [Button.inline("📊 Status", b"status")],
         [Button.inline("📢 Set Laporan Group", b"set_report")]
     ]
     
     await event.respond(
-        "🤖 **Bot Userbot Manager**\n\n"
+        "🤖 **Bot Multi Userbot Manager**\n\n"
         f"👤 Admin: `{ADMIN_ID}`\n"
         f"📱 Userbot Aktif: `{len([u for u in userbots.values() if u['active']])}/{len(userbots)}`\n"
         f"🔔 Status: `{'ON' if settings.get('active', False) else 'OFF'}`\n"
@@ -76,13 +76,13 @@ async def start_handler(event):
 @bot.on(events.CallbackQuery(pattern=b"add_ubot"))
 async def add_ubot_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer("❌ sok asik", alert=True)
+        await event.answer("❌ Unauthorized", alert=True)
         return
     
     buttons = [
         [Button.inline("📱 Via Nomor Telepon", b"add_phone")],
         [Button.inline("📝 Via String Session", b"add_string")],
-        [Button.inline("🔙 Balik", b"back_main")]
+        [Button.inline("🔙 Kembali", b"back_main")]
     ]
     
     await event.edit(
@@ -94,7 +94,7 @@ async def add_ubot_handler(event):
 @bot.on(events.CallbackQuery(pattern=b"add_phone"))
 async def add_phone_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer("❌ apasi", alert=True)
+        await event.answer("❌ Unauthorized", alert=True)
         return
     
     await event.edit("📱 Silakan kirim nomor telepon (dengan kode negara, contoh: +6281234567890)")
@@ -103,7 +103,7 @@ async def add_phone_handler(event):
 @bot.on(events.CallbackQuery(pattern=b"add_string"))
 async def add_string_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer("❌ apasi", alert=True)
+        await event.answer("❌ Unauthorized", alert=True)
         return
     
     await event.edit(
@@ -483,6 +483,51 @@ async def set_report_process_handler(event):
 # ======================== USERBOT COMMANDS ========================
 async def start_userbot_handlers(client, user_id):
     """Start handlers for a userbot"""
+    
+    @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_reply and e.is_group))
+    async def auto_reply_group_handler(event):
+        """Auto reply when someone replies to userbot's message in group"""
+        ubot = userbots.get(user_id)
+        if not ubot or not ubot['active']:
+            return
+        
+        try:
+            # Check if the reply is to our message
+            reply_msg = await event.get_reply_message()
+            if reply_msg and reply_msg.sender_id == user_id:
+                # Get sender info
+                sender = await event.get_sender()
+                sender_name = sender.first_name if sender.first_name else "someone"
+                
+                # Send auto reply
+                await event.reply(
+                    f"Halo kak {sender_name}, untuk lebih lanjut silahkan hubungi @hiyaok aja yaaaah ka! Thank u! 😍"
+                )
+        except Exception as e:
+            logger.error(f"Auto reply group error for userbot {user_id}: {str(e)}")
+    
+    @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
+    async def auto_reply_dm_handler(event):
+        """Auto reply when someone DMs the userbot (except admin)"""
+        ubot = userbots.get(user_id)
+        if not ubot or not ubot['active']:
+            return
+        
+        # Skip if message from admin
+        if event.sender_id == ubot['admin_id']:
+            return
+        
+        try:
+            # Get sender info
+            sender = await event.get_sender()
+            sender_name = sender.first_name if sender.first_name else "someone"
+            
+            # Send auto reply
+            await event.respond(
+                f"Halo kak {sender_name}, untuk lebih lanjut silahkan hubungi @hiyaok aja yaaaah ka! Thank u! 😍"
+            )
+        except Exception as e:
+            logger.error(f"Auto reply DM error for userbot {user_id}: {str(e)}")
     
     @client.on(events.NewMessage(pattern=r'^\.add$', outgoing=True))
     async def add_message_handler(event):
