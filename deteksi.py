@@ -43,98 +43,104 @@ class ImageDatabase:
             'user_id': user_id,
             'username': username,
             'message_id': message_id,
-            'phash': str(hashes['phash']),
-            'dhash': str(hashes['dhash']),
-            'ahash': str(hashes['ahash']),
-            'whash': str(hashes['whash']),
-            'colorhash': str(hashes['colorhash']),
+            'phash': hashes['phash'],
+            'dhash': hashes['dhash'],
+            'ahash': hashes['ahash'],
+            'whash': hashes['whash'],
             'timestamp': timestamp
         })
         self.save_db()
     
-    def find_similar(self, chat_id, hashes, threshold=5):
+    def find_similar(self, chat_id, hashes, threshold=8):
         chat_key = str(chat_id)
         if chat_key not in self.data:
             return None
         
-        target_phash = imagehash.hex_to_hash(hashes['phash'])
-        target_dhash = imagehash.hex_to_hash(hashes['dhash'])
-        target_ahash = imagehash.hex_to_hash(hashes['ahash'])
-        target_whash = imagehash.hex_to_hash(hashes['whash'])
-        target_colorhash = imagehash.hex_to_hash(hashes['colorhash'])
+        target_phash = hashes['phash']
+        target_dhash = hashes['dhash']
+        target_ahash = hashes['ahash']
+        target_whash = hashes['whash']
         
         for entry in reversed(self.data[chat_key]):
-            stored_phash = imagehash.hex_to_hash(entry['phash'])
-            stored_dhash = imagehash.hex_to_hash(entry['dhash'])
-            stored_ahash = imagehash.hex_to_hash(entry['ahash'])
-            stored_whash = imagehash.hex_to_hash(entry['whash'])
-            stored_colorhash = imagehash.hex_to_hash(entry['colorhash'])
-            
-            # Multi-hash comparison untuk akurasi tinggi
-            phash_diff = target_phash - stored_phash
-            dhash_diff = target_dhash - stored_dhash
-            ahash_diff = target_ahash - stored_ahash
-            whash_diff = target_whash - stored_whash
-            colorhash_diff = target_colorhash - stored_colorhash
-            
-            # Weighted scoring system
-            total_score = (
-                phash_diff * 2.0 +      # Perceptual hash paling penting
-                dhash_diff * 1.5 +      # Difference hash
-                ahash_diff * 1.0 +      # Average hash
-                whash_diff * 1.5 +      # Wavelet hash
-                colorhash_diff * 1.0    # Color hash
-            ) / 7.0
-            
-            if total_score <= threshold:
-                return entry
+            try:
+                stored_phash = entry['phash']
+                stored_dhash = entry['dhash']
+                stored_ahash = entry['ahash']
+                stored_whash = entry['whash']
+                
+                # Hamming distance calculation
+                phash_diff = self.hamming_distance(target_phash, stored_phash)
+                dhash_diff = self.hamming_distance(target_dhash, stored_dhash)
+                ahash_diff = self.hamming_distance(target_ahash, stored_ahash)
+                whash_diff = self.hamming_distance(target_whash, stored_whash)
+                
+                # Weighted scoring system
+                total_score = (
+                    phash_diff * 2.5 +      # Perceptual hash paling penting
+                    dhash_diff * 1.5 +      # Difference hash
+                    ahash_diff * 1.0 +      # Average hash
+                    whash_diff * 1.5        # Wavelet hash
+                ) / 6.5
+                
+                logger.info(f"Comparison scores - phash: {phash_diff}, dhash: {dhash_diff}, ahash: {ahash_diff}, whash: {whash_diff}, total: {total_score:.2f}")
+                
+                if total_score <= threshold:
+                    return entry
+                    
+            except Exception as e:
+                logger.error(f"Error comparing hashes: {e}")
+                continue
         
         return None
+    
+    @staticmethod
+    def hamming_distance(hash1, hash2):
+        """Calculate hamming distance between two hex strings"""
+        if len(hash1) != len(hash2):
+            return 999
+        
+        distance = 0
+        for c1, c2 in zip(hash1, hash2):
+            # Convert hex to binary and count different bits
+            xor = int(c1, 16) ^ int(c2, 16)
+            distance += bin(xor).count('1')
+        
+        return distance
 
 # Advanced image processing
 class ImageAnalyzer:
     @staticmethod
     def compute_hashes(image):
         """Compute multiple perceptual hashes untuk akurasi maksimal"""
-        # Resize untuk konsistensi
-        img_resized = image.resize((512, 512), Image.Resampling.LANCZOS)
-        
-        return {
-            'phash': str(imagehash.phash(img_resized, hash_size=16)),
-            'dhash': str(imagehash.dhash(img_resized, hash_size=16)),
-            'ahash': str(imagehash.average_hash(img_resized, hash_size=16)),
-            'whash': str(imagehash.whash(img_resized, hash_size=16)),
-            'colorhash': str(imagehash.colorhash(img_resized, binbits=4))
-        }
-    
-    @staticmethod
-    def extract_features(image):
-        """Extract advanced features menggunakan OpenCV"""
-        # Convert ke numpy array
-        img_array = np.array(image.convert('RGB'))
-        img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        
-        # Compute histogram
-        hist_b = cv2.calcHist([img_cv], [0], None, [256], [0, 256])
-        hist_g = cv2.calcHist([img_cv], [1], None, [256], [0, 256])
-        hist_r = cv2.calcHist([img_cv], [2], None, [256], [0, 256])
-        
-        # Normalize
-        hist_b = cv2.normalize(hist_b, hist_b).flatten()
-        hist_g = cv2.normalize(hist_g, hist_g).flatten()
-        hist_r = cv2.normalize(hist_r, hist_r).flatten()
-        
-        return np.concatenate([hist_b, hist_g, hist_r])
+        try:
+            # Resize untuk konsistensi
+            img_resized = image.resize((256, 256), Image.Resampling.LANCZOS)
+            
+            # Compute hashes dengan error handling
+            phash = imagehash.phash(img_resized, hash_size=8)
+            dhash = imagehash.dhash(img_resized, hash_size=8)
+            ahash = imagehash.average_hash(img_resized, hash_size=8)
+            whash = imagehash.whash(img_resized, hash_size=8)
+            
+            return {
+                'phash': str(phash),
+                'dhash': str(dhash),
+                'ahash': str(ahash),
+                'whash': str(whash)
+            }
+        except Exception as e:
+            logger.error(f"Error computing hashes: {e}")
+            raise
     
     @staticmethod
     def preprocess_image(image):
         """Preprocess image untuk handling crop dan transformasi"""
-        # Auto-orient berdasarkan EXIF
         try:
+            # Auto-orient berdasarkan EXIF
             from PIL import ImageOps
             image = ImageOps.exif_transpose(image)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not transpose image: {e}")
         
         # Convert ke RGB jika perlu
         if image.mode != 'RGB':
@@ -149,10 +155,19 @@ analyzer = ImageAnalyzer()
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle foto yang dikirim ke bot atau grup"""
     try:
-        photo = update.message.photo[-1]  # Ambil resolusi tertinggi
+        # Handle both photo and document
+        if update.message.photo:
+            photo = update.message.photo[-1]  # Ambil resolusi tertinggi
+        elif update.message.document:
+            photo = update.message.document
+        else:
+            return
+        
         user = update.message.from_user
         chat_id = update.message.chat_id
         message_id = update.message.message_id
+        
+        logger.info(f"Processing photo from user {user.id} in chat {chat_id}")
         
         # Download foto
         file = await context.bot.get_file(photo.file_id)
@@ -164,9 +179,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Compute hashes
         hashes = analyzer.compute_hashes(image)
+        logger.info(f"Computed hashes: {hashes}")
         
         # Cek apakah gambar mirip dengan yang sudah ada
-        similar = db.find_similar(chat_id, hashes, threshold=5)
+        similar = db.find_similar(chat_id, hashes, threshold=8)
         
         if similar:
             # Gambar mirip ditemukan!
@@ -174,16 +190,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             original_username = similar['username']
             
             # Format pesan
-            time_diff = datetime.now() - datetime.fromisoformat(similar['timestamp'])
-            
-            if time_diff.days > 0:
-                time_str = f"{time_diff.days} hari yang lalu"
-            elif time_diff.seconds // 3600 > 0:
-                time_str = f"{time_diff.seconds // 3600} jam yang lalu"
-            elif time_diff.seconds // 60 > 0:
-                time_str = f"{time_diff.seconds // 60} menit yang lalu"
-            else:
-                time_str = "baru saja"
+            try:
+                time_diff = datetime.now() - datetime.fromisoformat(similar['timestamp'])
+                
+                if time_diff.days > 0:
+                    time_str = f"{time_diff.days} hari yang lalu"
+                elif time_diff.seconds // 3600 > 0:
+                    time_str = f"{time_diff.seconds // 3600} jam yang lalu"
+                elif time_diff.seconds // 60 > 0:
+                    time_str = f"{time_diff.seconds // 60} menit yang lalu"
+                else:
+                    time_str = "baru saja"
+            except:
+                time_str = "sebelumnya"
             
             reply_text = (
                 f"🔍 {username}, gambar ini sepertinya pernah dikirim ke grup ini {time_str} "
@@ -198,6 +217,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             logger.info(f"Duplicate detected: {username} in chat {chat_id}")
+        else:
+            logger.info(f"No duplicate found for image in chat {chat_id}")
         
         # Simpan hash gambar baru
         username = f"@{user.username}" if user.username else user.first_name
@@ -210,11 +231,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timestamp=datetime.now().isoformat()
         )
         
+        logger.info(f"Image saved to database for chat {chat_id}")
+        
     except Exception as e:
-        logger.error(f"Error processing photo: {e}")
-        await update.message.reply_text(
-            "Maaf, terjadi error saat memproses gambar 😅"
-        )
+        logger.error(f"Error processing photo: {e}", exc_info=True)
+        try:
+            await update.message.reply_text(
+                "Maaf, terjadi error saat memproses gambar 😅"
+            )
+        except:
+            pass
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
@@ -231,6 +257,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text)
 
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /clear - clear database untuk chat ini"""
+    chat_id = str(update.message.chat_id)
+    if chat_id in db.data:
+        count = len(db.data[chat_id])
+        db.data[chat_id] = []
+        db.save_db()
+        await update.message.reply_text(f"✅ Database cleared! {count} gambar dihapus dari chat ini.")
+    else:
+        await update.message.reply_text("ℹ️ Belum ada gambar tersimpan untuk chat ini.")
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /stats - lihat statistik"""
+    chat_id = str(update.message.chat_id)
+    if chat_id in db.data:
+        count = len(db.data[chat_id])
+        await update.message.reply_text(f"📊 Total gambar tersimpan: {count}")
+    else:
+        await update.message.reply_text("📊 Belum ada gambar tersimpan untuk chat ini.")
+
 def main():
     """Start bot"""
     # Ganti dengan token bot Anda
@@ -240,6 +286,12 @@ def main():
     application = Application.builder().token(TOKEN).build()
     
     # Add handlers
+    from telegram.ext import CommandHandler
+    
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    
     application.add_handler(MessageHandler(
         filters.PHOTO, 
         handle_photo
