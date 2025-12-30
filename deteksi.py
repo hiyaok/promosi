@@ -1,9 +1,11 @@
 import os
 import io
 import logging
+import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.request import HTTPXRequest
 from PIL import Image
 import imagehash
 import numpy as np
@@ -152,6 +154,21 @@ class ImageAnalyzer:
 db = ImageDatabase()
 analyzer = ImageAnalyzer()
 
+async def download_with_retry(bot, file_id, max_retries=3):
+    """Download file dengan retry mechanism"""
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Download attempt {attempt + 1}/{max_retries}")
+            file = await bot.get_file(file_id)
+            photo_bytes = await file.download_as_bytearray()
+            return photo_bytes
+        except Exception as e:
+            logger.warning(f"Download failed (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                raise
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle foto yang dikirim ke bot atau grup"""
     try:
@@ -169,9 +186,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"Processing photo from user {user.id} in chat {chat_id}")
         
-        # Download foto
-        file = await context.bot.get_file(photo.file_id)
-        photo_bytes = await file.download_as_bytearray()
+        # Download foto dengan retry
+        photo_bytes = await download_with_retry(context.bot, photo.file_id)
         
         # Process image
         image = Image.open(io.BytesIO(photo_bytes))
@@ -282,8 +298,20 @@ def main():
     # Ganti dengan token bot Anda
     TOKEN = "6564736253:AAFny4rwOAAI0xJrmUC6egy9S9Ws7U_D0o0"
     
-    # Create application
-    application = Application.builder().token(TOKEN).build()
+    # Custom request dengan timeout lebih panjang
+    request = HTTPXRequest(
+        connection_pool_size=8,
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0
+    )
+    
+    # Create application dengan custom request
+    application = Application.builder() \
+        .token(TOKEN) \
+        .request(request) \
+        .build()
     
     # Add handlers
     from telegram.ext import CommandHandler
